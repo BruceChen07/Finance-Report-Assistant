@@ -1,7 +1,7 @@
 import os
 from pathlib import Path
 from dataclasses import dataclass
-from typing import List
+from typing import List, Optional
 
 try:
     from dotenv import load_dotenv
@@ -25,6 +25,8 @@ class Settings:
     log_backup_count: int
     job_ttl_hours: int = 24
     use_modelscope: bool = True
+    device: str = "auto"
+    vram_limit: int = 0
 
 _SETTINGS: Settings | None = None
 
@@ -39,6 +41,12 @@ def get_settings() -> Settings:
     cors_origins = [o.strip() for o in cors_origins_raw.split(",") if o.strip()]
     log_dir = Path(os.getenv("FRA_LOG_DIR", str((output_root / "logs").resolve())))
     
+    device_env = os.getenv("FRA_DEVICE", "auto").lower()
+    if device_env == "auto":
+        device = "cuda" if is_cuda_available() else "cpu"
+    else:
+        device = device_env
+    vram_limit = int(os.getenv("FRA_VRAM_LIMIT", "0"))
     _SETTINGS = Settings(
         output_root=output_root,
         history_path=history_path,
@@ -54,8 +62,17 @@ def get_settings() -> Settings:
         log_backup_count=int(os.getenv("FRA_LOG_BACKUP_COUNT", "10")),
         job_ttl_hours=int(os.getenv("FRA_JOB_TTL_HOURS", "24")),
         use_modelscope=os.getenv("FRA_USE_MODELSCOPE", "True").lower() == "true",
+        device=device,
+        vram_limit=vram_limit,
     )
     return _SETTINGS
+
+def is_cuda_available() -> bool:
+    try:
+        import torch
+        return torch.cuda.is_available()
+    except ImportError:
+        return False
 
 def ensure_dir(d: Path) -> None:
     d.mkdir(parents=True, exist_ok=True)

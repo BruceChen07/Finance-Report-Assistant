@@ -14,6 +14,7 @@ from fastapi.staticfiles import StaticFiles
 from starlette.middleware.cors import CORSMiddleware
 
 from src.config import get_settings, ensure_dir
+from src.utils.gpu import get_gpu_status
 from src.auth import get_current_user, jwt_encode
 from src.history import read_history, append_history
 from src.converter import resolve_cli, MINERU_MODES, normalize_mineru_mode
@@ -62,6 +63,8 @@ def status(user: str = Depends(get_current_user)) -> dict[str, Any]:
         "magic_pdf": os.path.exists(resolve_cli("magic-pdf")),
         "mineru_modes": list(MINERU_MODES),
         "output_root": str(s.output_root),
+        "device": s.device,
+        "gpu": get_gpu_status(),
     }
 
 @app.get("/api/history")

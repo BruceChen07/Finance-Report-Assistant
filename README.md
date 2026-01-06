@@ -77,6 +77,8 @@ Finance Report Assistant is a powerful web application designed to convert compl
 - `FRA_USERNAME`/`FRA_PASSWORD`: Initial login credentials.
 - `FRA_USE_MODELSCOPE`: Set to `True` for faster downloads in China.
 - `FRA_JOB_TTL_HOURS`: History retention period (default: 24h).
+- `FRA_DEVICE`: Device for model inference - `auto`, `cpu`, `cuda`, `cuda:0`, etc. (default: `auto`)
+- `FRA_VRAM_LIMIT`: GPU memory limit in MB per process, `0` means no limit (default: `0`)
 
 ---
 

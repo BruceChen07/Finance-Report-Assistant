@@ -12,7 +12,6 @@ env/
 
 # Data and Output (Important to ignore)
 output/
-data/
 history.jsonl
 logs/
 

@@ -84,6 +84,14 @@ def _run_cmd_stream(job_id: str, cmd: list[str], stage: str, percent_base: int, 
         env["FITZ_QUIET"] = "1"
         if s.use_modelscope:
             env["MODELSCOPE_SAMESITE"] = "True"
+        env_device = getattr(s, "device", "cpu")
+        env["FRA_DEVICE"] = env_device
+        if env_device == "cuda":
+            if "CUDA_VISIBLE_DEVICES" not in env and os.getenv("CUDA_VISIBLE_DEVICES"):
+                env["CUDA_VISIBLE_DEVICES"] = os.getenv("CUDA_VISIBLE_DEVICES")
+            vram_limit = getattr(s, "vram_limit", 0)
+            if vram_limit and vram_limit > 0 and "PYTORCH_CUDA_ALLOC_CONF" not in env:
+                env["PYTORCH_CUDA_ALLOC_CONF"] = f"max_split_size_mb:{vram_limit}"
         p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, shell=False, bufsize=1, env=env)
     except FileNotFoundError:
         _log_job(job_id, "ERROR", stage, f"command not found: {cmd[0]}")
@@ -182,8 +190,10 @@ def _convert_job(job_id: str, user: str, pdf_path: Path, job_dir: Path, backend:
             ensure_dir(target.parent)
             shutil.copy2(md_path, target)
         total_ms = int((time.time() - job_start) * 1000)
-        publish_event(job_id, {"type": "progress", "stage": "done", "percent": 100, "ok": True, "md_path": str(target), "elapsed_ms": total_ms})
-        append_history({"type": "convert.done", "user": user, "job_id": job_id, "ok": True, "md": str(target)})
+        s = get_settings()
+        device = getattr(s, "device", "cpu")
+        publish_event(job_id, {"type": "progress", "stage": "done", "percent": 100, "ok": True, "md_path": str(target), "elapsed_ms": total_ms, "device": device})
+        append_history({"type": "convert.done", "user": user, "job_id": job_id, "ok": True, "md": str(target), "device": device})
 
 def perform_cleanup() -> None:
     s = get_settings()
