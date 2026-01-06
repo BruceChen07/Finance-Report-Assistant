@@ -18,7 +18,7 @@ import {
   ListItemIcon,
   ListItemText,
   Toolbar,
-  Typography
+  Typography,
 } from "@mui/material";
 import DashboardIcon from "@mui/icons-material/Dashboard";
 import UploadFileIcon from "@mui/icons-material/UploadFile";
@@ -33,11 +33,13 @@ import ResultsPage from "./pages/ResultsPage";
 import HistoryPage from "./pages/HistoryPage";
 import HelpPage from "./pages/HelpPage";
 import { useAuth } from "./components/providers/AuthProvider";
+import QaPage from "./pages/QaPage";
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
   const { token } = useAuth();
   const loc = useLocation();
-  if (!token) return <Navigate to="/login" replace state={{ from: loc.pathname }} />;
+  if (!token)
+    return <Navigate to="/login" replace state={{ from: loc.pathname }} />;
   return <>{children}</>;
 }
 
@@ -51,7 +53,8 @@ export default function App() {
       { to: "/convert", label: "API Call", icon: <UploadFileIcon /> },
       { to: "/results", label: "Results", icon: <CheckCircleOutlineIcon /> },
       { to: "/history", label: "History", icon: <HistoryIcon /> },
-      { to: "/help", label: "Help", icon: <HelpOutlineIcon /> }
+      { to: "/qa", label: "Q&A", icon: <HelpOutlineIcon /> },
+      { to: "/help", label: "Help", icon: <HelpOutlineIcon /> },
     ],
     []
   );
@@ -63,7 +66,9 @@ export default function App() {
           <Typography variant="h6" sx={{ flexGrow: 1 }}>
             Finance Report Assistant
           </Typography>
-          {token ? <Typography variant="body2">{username || "Signed in"}</Typography> : null}
+          {token ? (
+            <Typography variant="body2">{username || "Signed in"}</Typography>
+          ) : null}
           {token ? (
             <Button color="inherit" startIcon={<LogoutIcon />} onClick={logout}>
               Logout
@@ -78,14 +83,22 @@ export default function App() {
           sx={{
             width: drawerWidth,
             flexShrink: 0,
-            "& .MuiDrawer-paper": { width: drawerWidth, boxSizing: "border-box" }
+            "& .MuiDrawer-paper": {
+              width: drawerWidth,
+              boxSizing: "border-box",
+            },
           }}
         >
           <Toolbar />
           <Divider />
           <List>
             {navItems.map((it) => (
-              <ListItemButton key={it.to} component={Link} to={it.to} sx={{ px: 2 }}>
+              <ListItemButton
+                key={it.to}
+                component={Link}
+                to={it.to}
+                sx={{ px: 2 }}
+              >
                 <ListItemIcon>{it.icon}</ListItemIcon>
                 <ListItemText primary={it.label} />
               </ListItemButton>
@@ -94,7 +107,10 @@ export default function App() {
         </Drawer>
       ) : null}
 
-      <Box component="main" sx={{ flexGrow: 1, bgcolor: "background.default", minHeight: "100vh" }}>
+      <Box
+        component="main"
+        sx={{ flexGrow: 1, bgcolor: "background.default", minHeight: "100vh" }}
+      >
         <Toolbar />
         <Container maxWidth="lg" sx={{ py: 3 }}>
           <Suspense fallback={<Typography>Loading...</Typography>}>
@@ -133,6 +149,14 @@ export default function App() {
                 }
               />
               <Route
+                path="/qa"
+                element={
+                  <RequireAuth>
+                    <QaPage />
+                  </RequireAuth>
+                }
+              />
+              <Route
                 path="/help"
                 element={
                   <RequireAuth>
@@ -140,7 +164,10 @@ export default function App() {
                   </RequireAuth>
                 }
               />
-              <Route path="*" element={<Navigate to={token ? "/" : "/login"} replace />} />
+              <Route
+                path="*"
+                element={<Navigate to={token ? "/" : "/login"} replace />}
+              />
             </Routes>
           </Suspense>
         </Container>

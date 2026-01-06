@@ -69,6 +69,14 @@ def search_md(out_dir: Path, pdf_basename: str) -> Path | None:
             return p
     return md_files[0] if md_files else None
 
+def search_auto_md(out_dir: Path, pdf_basename: str) -> Path | None:
+    md_files = list(out_dir.rglob("auto/*.md"))
+    md_files.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+    for p in md_files:
+        if pdf_basename.lower() in p.name.lower():
+            return p
+    return md_files[0] if md_files else None
+
 def search_default_md(pdf_basename: str) -> Path | None:
     tmp = Path(tempfile.gettempdir())
     candidates = [tmp / "magic-pdf", tmp / "mineru", Path("/tmp/magic-pdf")] if sys.platform != "win32" else [tmp / "magic-pdf", tmp / "mineru"]
@@ -91,14 +99,10 @@ def convert_pdf(pdf: Path, out_dir: Path) -> Path:
         tried.append((cmd, ok, out, err))
         if ok:
             break
-    md_path = search_md(out_dir, pdf.stem)
+    md_path = search_auto_md(out_dir, pdf.stem) or search_md(out_dir, pdf.stem)
     if md_path is None:
         md_path = search_default_md(pdf.stem)
     if md_path is None:
         reason = "; ".join([f"{' '.join(c)} => {'ok' if o else 'fail'}" for c, o, _, _ in tried])
         raise RuntimeError(f"Failed to convert {pdf.name} with MinerU/magic-pdf. Tried: {reason}")
-    target = out_dir / f"{pdf.stem}.md"
-    if md_path.resolve() != target.resolve():
-        ensure_dir(target.parent)
-        shutil.copy2(md_path, target)
-    return target
+    return md_path

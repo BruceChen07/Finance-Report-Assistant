@@ -4,6 +4,8 @@ import os
 import sys
 import threading
 import time
+import zipfile
+from datetime import datetime
 from pathlib import Path
 
 # Fix for ModuleNotFoundError when running this script directly
@@ -12,6 +14,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from src.config import get_settings, ensure_dir
 from src.converter import convert_pdf
 from src.jobs import perform_cleanup
+from src.db.connection import init_db
 
 def _disable_vlm_transformers_when_missing() -> None:
     """Disable MinerU VLM transformers backend when `transformers` isn't installed."""
@@ -42,8 +45,42 @@ def start_background_tasks():
             except Exception as e:
                 logging.getLogger("fra.cleanup").error(f"Cleanup error: {e}")
             time.sleep(3600)
-    t = threading.Thread(target=cleanup_loop, name="fra-cleanup", daemon=True)
-    t.start()
+
+    def backup_loop():
+        time.sleep(15)
+        while True:
+            try:
+                s = get_settings()
+                chroma_dir = Path(os.getenv("FRA_CHROMA_DIR", str((s.output_root / "chroma").resolve())))
+                if chroma_dir.exists() and chroma_dir.is_dir():
+                    backups_dir = (s.output_root / "backups").resolve()
+                    ensure_dir(backups_dir)
+                    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+                    out = backups_dir / f"chroma_{ts}.zip"
+                    with zipfile.ZipFile(str(out), "w", compression=zipfile.ZIP_DEFLATED) as zf:
+                        for p in chroma_dir.rglob("*"):
+                            if p.is_file():
+                                rel = p.relative_to(chroma_dir)
+                                zf.write(str(p), arcname=str(rel))
+
+                    keep = int(os.getenv("FRA_CHROMA_BACKUP_KEEP", "10"))
+                    all_baks = sorted([x for x in backups_dir.glob("chroma_*.zip") if x.is_file()], key=lambda x: x.stat().st_mtime, reverse=True)
+                    for old in all_baks[keep:]:
+                        try:
+                            old.unlink()
+                        except Exception:
+                            pass
+            except Exception as e:
+                logging.getLogger("fra.backup").error(f"Backup error: {e}")
+
+            interval = int(os.getenv("FRA_CHROMA_BACKUP_INTERVAL_SECONDS", "86400"))
+            time.sleep(max(60, interval))
+
+    t1 = threading.Thread(target=cleanup_loop, name="fra-cleanup", daemon=True)
+    t1.start()
+
+    t2 = threading.Thread(target=backup_loop, name="fra-chroma-backup", daemon=True)
+    t2.start()
 
 def main() -> int:
     ap = argparse.ArgumentParser()
@@ -56,6 +93,10 @@ def main() -> int:
 
     configure_logging()
     _disable_vlm_transformers_when_missing()
+    try:
+        init_db()
+    except Exception as e:
+        logging.getLogger("fra.db").error(f"Failed to init SQLite DB: {e}")
 
     if args.serve:
         try:

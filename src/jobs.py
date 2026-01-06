@@ -11,7 +11,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List
 from src.config import get_settings, ensure_dir
-from src.converter import candidate_commands, search_md, search_default_md, normalize_mineru_mode, resolve_cli
+from src.converter import candidate_commands, search_auto_md, search_md, search_default_md, normalize_mineru_mode, resolve_cli
 from src.history import append_history
 
 @dataclass
@@ -118,7 +118,93 @@ def _run_cmd_stream(job_id: str, cmd: list[str], stage: str, percent_base: int, 
     hint = "; ".join(error_lines) if error_lines else None
     return rc == 0 and not error_lines, hint, "\n".join(full_output)
 
-def _convert_job(job_id: str, user: str, pdf_path: Path, job_dir: Path, backend: str | None, mode: str | None) -> None:
+
+def _persist_job_artifacts(
+    *,
+    job_id: str,
+    user: str,
+    job_dir: Path,
+    pdf_path: Path,
+    company_code: str | None,
+    company_name: str | None,
+    report_year: int | None,
+    report_type: int | None,
+    source_file_name: str | None,
+    source_file_size_bytes: int | None,
+    source_file_mtime_ms: int | None,
+    source_file_sha256: str | None,
+) -> None:
+    try:
+        from src.db.normalizer import ingest_report_from_job_id
+        from src.indexing.index_service import build_or_update_index_for_job
+
+        report = ingest_report_from_job_id(
+            job_id,
+            user=user,
+            company_code=company_code,
+            company_name=company_name,
+            report_year=report_year,
+            report_type=report_type,
+            pdf_path=str(pdf_path),
+            source_file_name=source_file_name,
+            source_file_size_bytes=source_file_size_bytes,
+            source_file_mtime_ms=source_file_mtime_ms,
+            source_file_sha256=source_file_sha256,
+        )
+
+        build_or_update_index_for_job(
+            job_id=job_id,
+            job_dir=job_dir,
+            company_id=(company_code or "").strip() or "UNKNOWN",
+            report_year=report_year,
+            report_type=report_type,
+            report_id=int(getattr(report, "id")),
+            user=user,
+            pdf_path=str(pdf_path),
+            source_file_name=source_file_name,
+            source_file_size_bytes=source_file_size_bytes,
+            source_file_mtime_ms=source_file_mtime_ms,
+            source_file_sha256=source_file_sha256,
+        )
+
+        from src.db.connection import get_session_factory
+        from src.db.metadata import Report
+
+        SessionLocal = get_session_factory()
+        db = SessionLocal()
+        try:
+            row = db.query(Report).filter(Report.job_id == job_id).first()
+            if row:
+                row.indexed_at = datetime.utcnow()
+            db.commit()
+        except Exception:
+            db.rollback()
+        finally:
+            db.close()
+
+        append_history({"type": "storage.done", "user": user, "job_id": job_id, "ok": True})
+    except Exception as e:
+        append_history({"type": "storage.done", "user": user, "job_id": job_id, "ok": False, "error": str(e)})
+        publish_event(job_id, {"type": "log", "level": "ERROR", "message": f"storage failed: {e}"})
+
+
+def _convert_job(
+    job_id: str,
+    user: str,
+    pdf_path: Path,
+    job_dir: Path,
+    backend: str | None,
+    mode: str | None,
+    *,
+    company_code: str | None = None,
+    company_name: str | None = None,
+    report_year: int | None = None,
+    report_type: str | None = None,
+    source_file_name: str | None = None,
+    source_file_size_bytes: int | None = None,
+    source_file_mtime_ms: int | None = None,
+    source_file_sha256: str | None = None,
+) -> None:
     job_start = time.time()
     publish_event(job_id, {"type": "progress", "stage": "prepare", "percent": 1, "ok": None})
     _log_job(job_id, "INFO", "prepare", f"job started: {pdf_path.name}")
@@ -146,7 +232,7 @@ def _convert_job(job_id: str, user: str, pdf_path: Path, job_dir: Path, backend:
                 except Exception: pass
 
         cmd_ok, cmd_hint, full_log = _run_cmd_stream(job_id, cmd, stage="convert", percent_base=5, percent_span=80)
-        md_path = search_md(job_dir, pdf_path.stem)
+        md_path = search_auto_md(job_dir, pdf_path.stem) or search_md(job_dir, pdf_path.stem)
         if cmd_ok and md_path:
             ok = True
             break
@@ -175,26 +261,65 @@ def _convert_job(job_id: str, user: str, pdf_path: Path, job_dir: Path, backend:
         f.write(full_log)
 
     publish_event(job_id, {"type": "progress", "stage": "collect_output", "percent": 90, "ok": None})
-    md_path = search_md(job_dir, pdf_path.stem) or search_default_md(pdf_path.stem)
+    md_path = search_auto_md(job_dir, pdf_path.stem) or search_md(job_dir, pdf_path.stem) or search_default_md(pdf_path.stem)
     if md_path:
-        target = job_dir / f"{pdf_path.stem}.md"
-        if md_path.resolve() != target.resolve():
-            ensure_dir(target.parent)
-            shutil.copy2(md_path, target)
         total_ms = int((time.time() - job_start) * 1000)
-        publish_event(job_id, {"type": "progress", "stage": "done", "percent": 100, "ok": True, "md_path": str(target), "elapsed_ms": total_ms})
-        append_history({"type": "convert.done", "user": user, "job_id": job_id, "ok": True, "md": str(target)})
+        publish_event(job_id, {"type": "progress", "stage": "done", "percent": 100, "ok": True, "md_path": str(md_path), "elapsed_ms": total_ms})
+        append_history({"type": "convert.done", "user": user, "job_id": job_id, "ok": True, "md": str(md_path)})
+
+        threading.Thread(
+            target=_persist_job_artifacts,
+            kwargs={
+                "job_id": job_id,
+                "user": user,
+                "job_dir": job_dir,
+                "pdf_path": pdf_path,
+                "company_code": company_code,
+                "company_name": company_name,
+                "report_year": report_year,
+                "report_type": report_type,
+                "source_file_name": source_file_name,
+                "source_file_size_bytes": source_file_size_bytes,
+                "source_file_mtime_ms": source_file_mtime_ms,
+                "source_file_sha256": source_file_sha256,
+            },
+            daemon=True,
+        ).start()
 
 def perform_cleanup() -> None:
     s = get_settings()
     now = time.time()
     ttl_seconds = s.job_ttl_hours * 3600
-    if not s.output_root.exists(): return
+    if not s.output_root.exists():
+        return
+
+    protected: set[str] = {"logs", "chroma", "backups"}
+    try:
+        from src.db.connection import get_session_factory
+        from src.db.metadata import Report
+
+        SessionLocal = get_session_factory()
+        db = SessionLocal()
+        try:
+            rows = db.query(Report.job_id).all()
+            for (jid,) in rows:
+                if jid:
+                    protected.add(str(jid))
+        finally:
+            db.close()
+    except Exception:
+        pass
+
     for item in s.output_root.iterdir():
-        if item.is_dir() and item.name != "logs":
-            try:
-                if (now - item.stat().st_mtime) > ttl_seconds:
-                    shutil.rmtree(item)
-                    with _JOBS_LOCK:
-                        if item.name in _JOBS: del _JOBS[item.name]
-            except Exception: pass
+        if not item.is_dir():
+            continue
+        if item.name in protected:
+            continue
+        try:
+            if (now - item.stat().st_mtime) > ttl_seconds:
+                shutil.rmtree(item)
+                with _JOBS_LOCK:
+                    if item.name in _JOBS:
+                        del _JOBS[item.name]
+        except Exception:
+            pass

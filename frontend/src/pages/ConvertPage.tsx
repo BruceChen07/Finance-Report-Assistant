@@ -22,7 +22,7 @@ import {
   Select,
   Stack,
   TextField,
-  Typography
+  Typography,
 } from "@mui/material";
 import ReactMarkdown from "react-markdown";
 import { apiFetch } from "../utils/api-client";
@@ -61,7 +61,8 @@ function tryExtractDetail(message: string): string {
   const raw = String(message || "");
   try {
     const obj = JSON.parse(raw) as any;
-    if (obj && typeof obj.detail === "string" && obj.detail.trim()) return obj.detail;
+    if (obj && typeof obj.detail === "string" && obj.detail.trim())
+      return obj.detail;
   } catch {
     return raw;
   }
@@ -141,11 +142,11 @@ export default function ConvertPage() {
           setJob((prev) =>
             prev
               ? {
-                ...prev,
-                stage: evt.stage || prev.stage,
-                percent: evt.percent ?? prev.percent,
-                updated_at: Date.now() / 1000
-              }
+                  ...prev,
+                  stage: evt.stage || prev.stage,
+                  percent: evt.percent ?? prev.percent,
+                  updated_at: Date.now() / 1000,
+                }
               : prev
           );
         }
@@ -165,17 +166,23 @@ export default function ConvertPage() {
               pdf_name: "",
               md_path: null,
               created_at: Date.now() / 1000,
-              updated_at: Date.now() / 1000
+              updated_at: Date.now() / 1000,
             } as JobStatus);
 
           return {
             ...base,
             stage: evt.stage ?? base.stage,
-            percent: typeof evt.percent === "number" ? evt.percent : base.percent,
-            ok: typeof evt.ok === "boolean" ? evt.ok : evt.ok === null ? null : base.ok,
+            percent:
+              typeof evt.percent === "number" ? evt.percent : base.percent,
+            ok:
+              typeof evt.ok === "boolean"
+                ? evt.ok
+                : evt.ok === null
+                ? null
+                : base.ok,
             error: evt.error ?? base.error,
             md_path: evt.md_path ?? base.md_path,
-            updated_at: Date.now() / 1000
+            updated_at: Date.now() / 1000,
           };
         });
       }
@@ -219,7 +226,9 @@ export default function ConvertPage() {
 
     const streamEvents = async () => {
       try {
-        const res = await apiFetch(`/api/jobs/${jobId}/events`, { signal: ac.signal });
+        const res = await apiFetch(`/api/jobs/${jobId}/events`, {
+          signal: ac.signal,
+        });
         if (!res.ok) throw new Error(await res.text());
         if (!res.body) throw new Error("events stream not available");
 
@@ -242,7 +251,12 @@ export default function ConvertPage() {
               try {
                 applyEvent(JSON.parse(raw) as JobEvent);
               } catch {
-                appendLog({ type: "log", level: "WARN", stage: "client", message: raw });
+                appendLog({
+                  type: "log",
+                  level: "WARN",
+                  stage: "client",
+                  message: raw,
+                });
               }
             }
             idx = buf.indexOf("\n\n");
@@ -316,7 +330,10 @@ export default function ConvertPage() {
       if (mode.trim()) qs.set("mode", mode.trim());
       qs.set("download", "false");
 
-      const res = await apiFetch(`/api/convert?${qs.toString()}`, { method: "POST", body: fd });
+      const res = await apiFetch(`/api/convert?${qs.toString()}`, {
+        method: "POST",
+        body: fd,
+      });
       if (!res.ok) throw new Error(await res.text());
       const data = (await res.json()) as { job_id: string; result_url: string };
 
@@ -331,7 +348,7 @@ export default function ConvertPage() {
         pdf_name: file.name,
         md_path: null,
         created_at: Date.now() / 1000,
-        updated_at: Date.now() / 1000
+        updated_at: Date.now() / 1000,
       });
 
       toast("Job created. Processing in background.", "info");
@@ -361,6 +378,31 @@ export default function ConvertPage() {
     }
   };
 
+  const downloadAutoBundle = async () => {
+    if (!jobId) return;
+    setLoading(true);
+    try {
+      const res = await apiFetch(`/api/jobs/${jobId}/auto-bundle`);
+      if (!res.ok) throw new Error(await res.text());
+      const blob = await res.blob();
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      const cd = res.headers.get("Content-Disposition") || "";
+      let filename = `${jobId}_auto.zip`;
+      const match = /filename="?([^";]+)"?/i.exec(cd);
+      if (match && match[1]) {
+        filename = match[1];
+      }
+      a.download = filename;
+      a.click();
+      URL.revokeObjectURL(a.href);
+    } catch (e: any) {
+      toast(`Download bundle failed: ${e?.message || String(e)}`, "error");
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <Grid container spacing={2}>
       <Grid item xs={12}>
@@ -385,7 +427,9 @@ export default function ConvertPage() {
                   onChange={(e) => setFile(e.target.files?.[0] || null)}
                 />
               </Button>
-              <Typography variant="body2">{file ? file.name : "No file selected"}</Typography>
+              <Typography variant="body2">
+                {file ? file.name : "No file selected"}
+              </Typography>
 
               <FormControl fullWidth disabled={isRunning}>
                 <InputLabel id="backend-label">Model / Backend</InputLabel>
@@ -395,18 +439,27 @@ export default function ConvertPage() {
                   value={backend}
                   onChange={(e) => setBackend(e.target.value)}
                 >
-                  <MenuItem value=""><em>Default (Auto)</em></MenuItem>
-                  <MenuItem value="pipeline">Pipeline (Fast, Rule-based + Layout)</MenuItem>
-                  <MenuItem value="vlm-transformers">VLM Transformers (Accurate, Multi-modal)</MenuItem>
+                  <MenuItem value="">
+                    <em>Default (Auto)</em>
+                  </MenuItem>
+                  <MenuItem value="pipeline">
+                    Pipeline (Fast, Rule-based + Layout)
+                  </MenuItem>
+                  <MenuItem value="vlm-transformers">
+                    VLM Transformers (Accurate, Multi-modal)
+                  </MenuItem>
                 </Select>
                 <FormHelperText>
-                  VLM is more accurate for complex layouts but requires more resources.
+                  VLM is more accurate for complex layouts but requires more
+                  resources.
                 </FormHelperText>
               </FormControl>
 
               {backend === "pipeline" && (
                 <FormControl fullWidth disabled={isRunning}>
-                  <InputLabel id="mineru-mode-label">OCR / Analysis Mode</InputLabel>
+                  <InputLabel id="mineru-mode-label">
+                    OCR / Analysis Mode
+                  </InputLabel>
                   <Select
                     labelId="mineru-mode-label"
                     label="OCR / Analysis Mode"
@@ -415,7 +468,9 @@ export default function ConvertPage() {
                   >
                     <MenuItem value="auto">Auto (Smart detect)</MenuItem>
                     <MenuItem value="txt">Text-based (No OCR)</MenuItem>
-                    <MenuItem value="ocr">OCR (Force OCR for all pages)</MenuItem>
+                    <MenuItem value="ocr">
+                      OCR (Force OCR for all pages)
+                    </MenuItem>
                   </Select>
                   <FormHelperText>
                     Use OCR mode for scanned documents or images.
@@ -423,24 +478,39 @@ export default function ConvertPage() {
                 </FormControl>
               )}
 
-              <Button variant="contained" disabled={!canSubmit} onClick={submit} sx={{ py: 1.25 }}>
+              <Button
+                variant="contained"
+                disabled={!canSubmit}
+                onClick={submit}
+                sx={{ py: 1.25 }}
+              >
                 Convert
               </Button>
 
               <Divider />
 
               <Stack spacing={1.25}>
-                <Stack direction="row" spacing={1} sx={{ alignItems: "center", flexWrap: "wrap" }}>
+                <Stack
+                  direction="row"
+                  spacing={1}
+                  sx={{ alignItems: "center", flexWrap: "wrap" }}
+                >
                   <Typography variant="body2">job_id:</Typography>
                   <Typography variant="body2" sx={{ fontFamily: "monospace" }}>
                     {jobId || "-"}
                   </Typography>
-                  {!!jobId && <Chip size="small" label={stageLabel(job?.stage || "-")} />}
+                  {!!jobId && (
+                    <Chip size="small" label={stageLabel(job?.stage || "-")} />
+                  )}
                   {!!jobId && (
                     <Chip
                       size="small"
                       variant="outlined"
-                      label={eventsConnected ? "events: connected" : "events: polling"}
+                      label={
+                        eventsConnected
+                          ? "events: connected"
+                          : "events: polling"
+                      }
                     />
                   )}
                 </Stack>
@@ -448,11 +518,20 @@ export default function ConvertPage() {
                 {!!jobId && (
                   <Stack spacing={0.75}>
                     <LinearProgress
-                      variant={typeof job?.percent === "number" ? "determinate" : "indeterminate"}
+                      variant={
+                        typeof job?.percent === "number"
+                          ? "determinate"
+                          : "indeterminate"
+                      }
                       value={Math.max(0, Math.min(100, job?.percent ?? 0))}
                     />
                     <Typography variant="caption" color="text.secondary">
-                      {(job?.percent ?? 0).toFixed(0)}% • {(job?.ok ?? null) === null ? "running" : job?.ok ? "done" : "error"}
+                      {(job?.percent ?? 0).toFixed(0)}% •{" "}
+                      {(job?.ok ?? null) === null
+                        ? "running"
+                        : job?.ok
+                        ? "done"
+                        : "error"}
                     </Typography>
                   </Stack>
                 )}
@@ -464,14 +543,38 @@ export default function ConvertPage() {
                 )}
               </Stack>
 
-              <Stack direction="row" spacing={1} sx={{ flexWrap: "wrap" }}>
-                <Button variant="outlined" disabled={!jobId || job?.ok !== true} onClick={download}>
+              {/* Added alignItems: "center" to ensure buttons align correctly when wrapping */}
+              <Stack
+                direction="row"
+                spacing={1}
+                sx={{ flexWrap: "wrap", alignItems: "center" }}
+              >
+                <Button
+                  variant="outlined"
+                  disabled={!jobId || job?.ok !== true}
+                  onClick={download}
+                >
                   Download .md
                 </Button>
-                <Button variant="outlined" disabled={!jobId} onClick={copyJobId}>
+                <Button
+                  variant="outlined"
+                  disabled={!jobId || job?.ok !== true}
+                  onClick={downloadAutoBundle}
+                >
+                  Download auto.zip
+                </Button>
+                <Button
+                  variant="outlined"
+                  disabled={!jobId}
+                  onClick={copyJobId}
+                >
                   Copy job id
                 </Button>
-                <Button variant="text" disabled={!jobId} onClick={clearTracking}>
+                <Button
+                  variant="text"
+                  disabled={!jobId}
+                  onClick={clearTracking}
+                >
                   Clear
                 </Button>
               </Stack>
@@ -498,7 +601,10 @@ export default function ConvertPage() {
               <Typography variant="body2" color="text.secondary">
                 Live progress/log stream (falls back to polling)
               </Typography>
-              <Paper variant="outlined" sx={{ maxHeight: 220, overflow: "auto", p: 1 }}>
+              <Paper
+                variant="outlined"
+                sx={{ maxHeight: 220, overflow: "auto", p: 1 }}
+              >
                 {logs.length === 0 ? (
                   <Typography variant="body2" color="text.secondary">
                     No logs yet.

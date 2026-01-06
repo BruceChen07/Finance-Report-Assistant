@@ -138,7 +138,7 @@ popd >nul
 rem ---- Start frontend ----
 echo [INFO] Starting frontend (Vite dev server) on http://localhost:5173 ...
 pushd "%FRONTEND_DIR%" >nul
-start "FRA Frontend" cmd /c "npm run dev 1>>"%FRONTEND_LOG%" 2>>&1"
+start "FRA Frontend" cmd /c "npm run dev 1>>""%FRONTEND_LOG%"" 2>>&1"
 popd >nul
 
 echo [OK] Services started.

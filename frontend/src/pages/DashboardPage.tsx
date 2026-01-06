@@ -10,14 +10,20 @@ import { useUi } from "../components/providers/UiProvider";
 export default function DashboardPage() {
   const { setLoading, toast } = useUi();
   const [status, setStatus] = useState<any>(null);
+  const [storage, setStorage] = useState<any>(null);
 
   useEffect(() => {
     const run = async () => {
       setLoading(true);
       try {
-        const res = await apiFetch("/api/status");
-        if (!res.ok) throw new Error(await res.text());
-        setStatus(await res.json());
+        const [resStatus, resStorage] = await Promise.all([
+          apiFetch("/api/status"),
+          apiFetch("/api/storage/status"),
+        ]);
+        if (!resStatus.ok) throw new Error(await resStatus.text());
+        if (!resStorage.ok) throw new Error(await resStorage.text());
+        setStatus(await resStatus.json());
+        setStorage(await resStorage.json());
       } catch (e: any) {
         toast(`Status failed: ${e?.message || String(e)}`, "error");
       } finally {
@@ -52,6 +58,14 @@ export default function DashboardPage() {
               <Typography variant="h6">Paths</Typography>
               <Typography variant="body2">output_root: {status?.output_root || "-"}</Typography>
               <Typography variant="body2">static_dist_dir: {status?.static_dist_dir || "-"}</Typography>
+              <Typography variant="body2">SQLite: {storage?.sqlite_path || "-"}</Typography>
+              <Typography variant="body2">SQLite size: {storage?.sqlite_size_bytes ?? "-"} bytes</Typography>
+              <Typography variant="body2">Chroma dir: {storage?.chroma_dir || "-"}</Typography>
+              <Typography variant="body2">Chroma size: {storage?.chroma_size_bytes ?? "-"} bytes</Typography>
+              <Typography variant="body2">Vectors: {storage?.chroma_vector_count ?? "-"}</Typography>
+              <Typography variant="body2">Reports: {storage?.reports_count ?? "-"}</Typography>
+              <Typography variant="body2">Last indexed: {storage?.last_indexed_at || "-"}</Typography>
+              <Typography variant="body2">Latest backup: {storage?.latest_backup || "-"}</Typography>
             </Stack>
           </CardContent>
         </Card>

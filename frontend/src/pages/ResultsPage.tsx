@@ -4,6 +4,7 @@
  * - Lets users preview or download previous markdown outputs.
  */
 import React, { useEffect, useMemo, useState } from "react";
+import rehypeRaw from "rehype-raw";
 import {
   Alert,
   Button,
@@ -17,9 +18,17 @@ import {
   Stack,
   TextField,
   Typography,
-  Box
+  Box,
+  ToggleButton,
+  ToggleButtonGroup,
+  FormControlLabel,
+  Switch,
 } from "@mui/material";
 import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+import remarkMath from "remark-math";
+import rehypeKatex from "rehype-katex";
+import "katex/dist/katex.min.css"; // Ensure you have this import if you want math styling
 import { apiFetch } from "../utils/api-client";
 import { useUi } from "../components/providers/UiProvider";
 
@@ -62,6 +71,25 @@ export default function ResultsPage() {
   const [previewPdfUrl, setPreviewPdfUrl] = useState<string>("");
   const [previewError, setPreviewError] = useState<string>("");
   const [splitView, setSplitView] = useState(true);
+  const [viewMode, setViewMode] = useState<"rendered" | "text">("rendered");
+  const [showLineNumbers, setShowLineNumbers] = useState(false);
+
+  useEffect(() => {
+    const savedMode = localStorage.getItem("fra.preview.viewMode");
+    if (savedMode === "text" || savedMode === "rendered") {
+      setViewMode(savedMode);
+    }
+  }, []);
+
+  const handleViewModeChange = (
+    event: React.MouseEvent<HTMLElement>,
+    newMode: "rendered" | "text" | null
+  ) => {
+    if (newMode !== null) {
+      setViewMode(newMode);
+      localStorage.setItem("fra.preview.viewMode", newMode);
+    }
+  };
 
   const load = async () => {
     setLoading(true);
@@ -85,7 +113,11 @@ export default function ResultsPage() {
     const byJob = new Map<string, ResultRow>();
 
     for (const e of events) {
-      if (e?.type === "convert.done" && e.ok === true && typeof e.job_id === "string") {
+      if (
+        e?.type === "convert.done" &&
+        e.ok === true &&
+        typeof e.job_id === "string"
+      ) {
         const jobId = e.job_id;
         if (!byJob.has(jobId)) {
           byJob.set(jobId, {
@@ -94,7 +126,7 @@ export default function ResultsPage() {
             user: typeof e.user === "string" ? e.user : "",
             pdf: "",
             backend: "",
-            md: typeof e.md === "string" ? e.md : ""
+            md: typeof e.md === "string" ? e.md : "",
           });
         }
       }
@@ -117,7 +149,8 @@ export default function ResultsPage() {
     if (!q) return list;
 
     return list.filter((r) => {
-      const hay = `${r.job_id} ${r.pdf} ${r.backend} ${r.user} ${r.md}`.toLowerCase();
+      const hay =
+        `${r.job_id} ${r.pdf} ${r.backend} ${r.user} ${r.md}`.toLowerCase();
       return hay.includes(q);
     });
   }, [events, query]);
@@ -175,6 +208,30 @@ export default function ResultsPage() {
     }
   };
 
+  const downloadAuto = async (jobId: string) => {
+    setLoading(true);
+    try {
+      const res = await apiFetch(`/api/jobs/${jobId}/auto-bundle`);
+      if (!res.ok) throw new Error(await res.text());
+      const blob = await res.blob();
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      const cd = res.headers.get("Content-Disposition") || "";
+      let filename = `${jobId}_auto.zip`;
+      const match = /filename="?([^";]+)"?/i.exec(cd);
+      if (match && match[1]) {
+        filename = match[1];
+      }
+      a.download = filename;
+      a.click();
+      URL.revokeObjectURL(a.href);
+    } catch (e: any) {
+      toast(`Download bundle failed: ${e?.message || String(e)}`, "error");
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const copyJobId = async (jobId: string) => {
     try {
       await navigator.clipboard.writeText(jobId);
@@ -200,7 +257,11 @@ export default function ResultsPage() {
           <Card>
             <CardContent>
               <Stack spacing={1.5}>
-                <Stack direction={{ xs: "column", sm: "row" }} spacing={1} sx={{ alignItems: { sm: "center" } }}>
+                <Stack
+                  direction={{ xs: "column", sm: "row" }}
+                  spacing={1}
+                  sx={{ alignItems: { sm: "center" } }}
+                >
                   <TextField
                     value={query}
                     onChange={(e) => setQuery(e.target.value)}
@@ -208,7 +269,11 @@ export default function ResultsPage() {
                     placeholder="job id / pdf / backend / user"
                     fullWidth
                   />
-                  <Button variant="outlined" onClick={load} sx={{ whiteSpace: "nowrap" }}>
+                  <Button
+                    variant="outlined"
+                    onClick={load}
+                    sx={{ whiteSpace: "nowrap" }}
+                  >
                     Refresh
                   </Button>
                 </Stack>
@@ -221,33 +286,96 @@ export default function ResultsPage() {
                   </Alert>
                 ) : (
                   <div style={{ overflow: "auto", maxHeight: 560 }}>
-                    <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                    <table
+                      style={{ width: "100%", borderCollapse: "collapse" }}
+                    >
                       <thead>
                         <tr>
-                          <th style={{ textAlign: "left", padding: "8px 6px" }}>Time</th>
-                          <th style={{ textAlign: "left", padding: "8px 6px" }}>PDF</th>
-                          <th style={{ textAlign: "left", padding: "8px 6px" }}>Backend</th>
-                          <th style={{ textAlign: "left", padding: "8px 6px" }}>Job ID</th>
-                          <th style={{ textAlign: "left", padding: "8px 6px" }}>Actions</th>
+                          <th style={{ textAlign: "left", padding: "8px 6px" }}>
+                            Time
+                          </th>
+                          <th style={{ textAlign: "left", padding: "8px 6px" }}>
+                            PDF
+                          </th>
+                          <th style={{ textAlign: "left", padding: "8px 6px" }}>
+                            Backend
+                          </th>
+                          <th style={{ textAlign: "left", padding: "8px 6px" }}>
+                            Job ID
+                          </th>
+                          <th style={{ textAlign: "left", padding: "8px 6px" }}>
+                            Actions
+                          </th>
                         </tr>
                       </thead>
                       <tbody>
                         {rows.map((r) => (
-                          <tr key={r.job_id} style={{ borderTop: "1px solid rgba(0,0,0,0.08)" }}>
-                            <td style={{ padding: "8px 6px", whiteSpace: "nowrap" }}>{toLocalTime(r.ts)}</td>
-                            <td style={{ padding: "8px 6px" }}>{r.pdf || "-"}</td>
-                            <td style={{ padding: "8px 6px" }}>{r.backend || "-"}</td>
-                            <td style={{ padding: "8px 6px", fontFamily: "Consolas, monospace" }}>{r.job_id}</td>
+                          <tr
+                            key={r.job_id}
+                            style={{ borderTop: "1px solid rgba(0,0,0,0.08)" }}
+                          >
+                            <td
+                              style={{
+                                padding: "8px 6px",
+                                whiteSpace: "nowrap",
+                              }}
+                            >
+                              {toLocalTime(r.ts)}
+                            </td>
                             <td style={{ padding: "8px 6px" }}>
-                              <Stack direction="row" spacing={1} sx={{ flexWrap: "wrap" }}>
-                                <Button size="small" variant="outlined" onClick={() => preview(r.job_id)}>
+                              {r.pdf || "-"}
+                            </td>
+                            <td style={{ padding: "8px 6px" }}>
+                              {r.backend || "-"}
+                            </td>
+                            <td
+                              style={{
+                                padding: "8px 6px",
+                                fontFamily: "Consolas, monospace",
+                              }}
+                            >
+                              {r.job_id}
+                            </td>
+                            <td style={{ padding: "8px 6px" }}>
+                              <Stack
+                                direction="row"
+                                spacing={1}
+                                sx={{
+                                  flexWrap: "nowrap",
+                                  whiteSpace: "nowrap",
+                                }}
+                              >
+                                <Button
+                                  size="small"
+                                  variant="outlined"
+                                  onClick={() => preview(r.job_id)}
+                                  sx={{ minWidth: "auto" }}
+                                >
                                   Preview
                                 </Button>
-                                <Button size="small" variant="outlined" onClick={() => download(r.job_id)}>
+                                <Button
+                                  size="small"
+                                  variant="outlined"
+                                  onClick={() => download(r.job_id)}
+                                  sx={{ minWidth: "auto" }}
+                                >
                                   Download
                                 </Button>
-                                <Button size="small" variant="text" onClick={() => copyJobId(r.job_id)}>
-                                  Copy id
+                                <Button
+                                  size="small"
+                                  variant="outlined"
+                                  onClick={() => downloadAuto(r.job_id)}
+                                  sx={{ minWidth: "auto" }}
+                                >
+                                  Bundle
+                                </Button>
+                                <Button
+                                  size="small"
+                                  variant="text"
+                                  onClick={() => copyJobId(r.job_id)}
+                                  sx={{ minWidth: "auto" }}
+                                >
+                                  Copy ID
                                 </Button>
                               </Stack>
                             </td>
@@ -264,11 +392,20 @@ export default function ResultsPage() {
       </Grid>
 
       <Dialog open={previewOpen} onClose={closePreview} fullWidth maxWidth="xl">
-        <DialogTitle sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 2 }}>
-          <Stack direction="row" spacing={2} sx={{ alignItems: "center", flexGrow: 1 }}>
-            <Typography variant="h6">
-              Preview: {previewJobId || "-"}
-            </Typography>
+        <DialogTitle
+          sx={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: 2,
+          }}
+        >
+          <Stack
+            direction="row"
+            spacing={2}
+            sx={{ alignItems: "center", flexGrow: 1 }}
+          >
+            <Typography variant="h6">Preview: {previewJobId || "-"}</Typography>
             <Button
               size="small"
               variant={splitView ? "contained" : "outlined"}
@@ -277,10 +414,51 @@ export default function ResultsPage() {
             >
               {splitView ? "Single View" : "Split View"}
             </Button>
+
+            <ToggleButtonGroup
+              value={viewMode}
+              exclusive
+              onChange={handleViewModeChange}
+              size="small"
+              aria-label="view mode"
+            >
+              <ToggleButton value="rendered" aria-label="rendered">
+                Rendered
+              </ToggleButton>
+              <ToggleButton value="text" aria-label="text">
+                Text
+              </ToggleButton>
+            </ToggleButtonGroup>
+
+            {viewMode === "text" && (
+              <FormControlLabel
+                control={
+                  <Switch
+                    size="small"
+                    checked={showLineNumbers}
+                    onChange={(e) => setShowLineNumbers(e.target.checked)}
+                  />
+                }
+                label={<Typography variant="caption">Line Nums</Typography>}
+              />
+            )}
           </Stack>
-          <Button variant="outlined" onClick={() => (previewJobId ? download(previewJobId) : null)} disabled={!previewJobId}>
-            Download .md
-          </Button>
+          <Stack direction="row" spacing={1}>
+            <Button
+              variant="outlined"
+              onClick={() => (previewJobId ? download(previewJobId) : null)}
+              disabled={!previewJobId}
+            >
+              Download .md
+            </Button>
+            <Button
+              variant="outlined"
+              onClick={() => (previewJobId ? downloadAuto(previewJobId) : null)}
+              disabled={!previewJobId}
+            >
+              Download auto.zip
+            </Button>
+          </Stack>
         </DialogTitle>
         <DialogContent dividers sx={{ p: 0 }}>
           {previewError ? (
@@ -289,8 +467,16 @@ export default function ResultsPage() {
             </Box>
           ) : (
             <Grid container sx={{ height: "80vh" }}>
-              {(splitView && previewPdfUrl) && (
-                <Grid item xs={12} md={6} sx={{ borderRight: "1px solid rgba(0,0,0,0.12)", height: "100%" }}>
+              {splitView && previewPdfUrl && (
+                <Grid
+                  item
+                  xs={12}
+                  md={6}
+                  sx={{
+                    borderRight: "1px solid rgba(0,0,0,0.12)",
+                    height: "100%",
+                  }}
+                >
                   <iframe
                     src={`${previewPdfUrl}#toolbar=0`}
                     width="100%"
@@ -300,8 +486,121 @@ export default function ResultsPage() {
                   />
                 </Grid>
               )}
-              <Grid item xs={12} md={(splitView && previewPdfUrl) ? 6 : 12} sx={{ height: "100%", overflow: "auto", p: 3 }}>
-                <ReactMarkdown>{previewMarkdown || "No content."}</ReactMarkdown>
+              <Grid
+                item
+                xs={12}
+                md={splitView && previewPdfUrl ? 6 : 12}
+                sx={{ height: "100%", overflow: "auto", p: 3 }}
+              >
+                {viewMode === "rendered" ? (
+                  <Box
+                    className="markdown-body"
+                    sx={{
+                      "& table": {
+                        width: "100%",
+                        borderCollapse: "collapse",
+                        tableLayout: "auto",
+                      },
+                      "& th, & td": {
+                        verticalAlign: "top",
+                      },
+                      "& td:first-of-type": {
+                        whiteSpace: "pre-wrap",
+                      },
+                      "& td:nth-of-type(n+2), & th:nth-of-type(n+2)": {
+                        textAlign: "right",
+                        whiteSpace: "nowrap",
+                        fontVariantNumeric: "tabular-nums",
+                      },
+                    }}
+                  >
+                    <ReactMarkdown
+                      remarkPlugins={[remarkGfm, remarkMath]}
+                      rehypePlugins={[rehypeRaw, rehypeKatex]}
+                      components={{
+                        table: ({ node, ...props }) => (
+                          <div style={{ overflowX: "auto" }}>
+                            <table
+                              style={{
+                                borderCollapse: "collapse",
+                                width: "100%",
+                                marginBottom: "1em",
+                              }}
+                              {...props}
+                            />
+                          </div>
+                        ),
+                        th: ({ node, ...props }) => (
+                          <th
+                            style={{
+                              border: "1px solid #ddd",
+                              padding: "8px",
+                              backgroundColor: "#f2f2f2",
+                              verticalAlign: "top",
+                            }}
+                            {...props}
+                          />
+                        ),
+                        td: ({ node, ...props }) => (
+                          <td
+                            style={{
+                              border: "1px solid #ddd",
+                              padding: "8px",
+                              verticalAlign: "top",
+                            }}
+                            {...props}
+                          />
+                        ),
+                        img: ({ node, ...props }) => (
+                          <img
+                            style={{ maxWidth: "100%", height: "auto" }}
+                            {...props}
+                          />
+                        ),
+                      }}
+                    >
+                      {previewMarkdown || "No content."}
+                    </ReactMarkdown>
+                  </Box>
+                ) : (
+                  <Box
+                    component="pre"
+                    sx={{
+                      m: 0,
+                      p: 2,
+                      fontFamily: "Consolas, monospace",
+                      fontSize: "0.875rem",
+                      whiteSpace: "pre-wrap",
+                      wordBreak: "break-word",
+                      backgroundColor: "#f5f5f5",
+                      borderRadius: 1,
+                      minHeight: "100%",
+                      counterReset: showLineNumbers ? "line" : "none",
+                    }}
+                  >
+                    {showLineNumbers
+                      ? previewMarkdown.split("\n").map((line, i) => (
+                          <div key={i} style={{ display: "flex" }}>
+                            <span
+                              style={{
+                                display: "inline-block",
+                                width: "3em",
+                                textAlign: "right",
+                                marginRight: "1em",
+                                color: "#999",
+                                userSelect: "none",
+                                borderRight: "1px solid #ddd",
+                                paddingRight: "0.5em",
+                              }}
+                            >
+                              {i + 1}
+                            </span>
+                            <span>{line}</span>
+                          </div>
+                        ))
+                      : previewMarkdown}
+                  </Box>
+                )}
               </Grid>
             </Grid>
           )}
